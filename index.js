@@ -90,9 +90,301 @@ $(document).ready(async () => {
     CONTEXT.POS.col = parseInt(firstInput.id.substring(6).split("-")[1]);
     CONTEXT.isFocused = true;
     updateSelection();
+
+    // set timer interval
+    const start = Date.now();
+    setInterval(() => {
+        const elapsedSec = ~~(Date.now() - start) / 1e3;
+        const hours = ~~(elapsedSec / 3600);
+        const minutes = ~~(elapsedSec % 3600 / 60);
+        const sec = ~~(elapsedSec % 60);
+        const timeStr = (hours > 0 ? hours + ":" + minutes.toString().padStart(2, "0") : minutes) + ":" + sec.toString().padStart(2, "0");
+        $("#time-readout").html(timeStr);
+    }, 1e3);
 });
 
-// takes the grid element & generates word placement
+/****************** event handlers ******************/
+
+const getFocusedInput = () => $("#input-" + CONTEXT.POS.row + "-" + CONTEXT.POS.col)[0];
+
+function bindEvents() {
+    const validChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    
+    // bind arrow events to document
+    $("body").on("keydown", e => {
+        if (!CONTEXT.isFocused) return;
+
+        const focusedElem = getFocusedInput();
+
+        // switch on key type
+        switch (e.originalEvent.code) {
+            case "ArrowUp":
+                e.preventDefault();
+                if (CONTEXT.DIRECTION === HORIZONTAL)
+                    CONTEXT.DIRECTION = VERTICAL;
+                else
+                    shiftFocus("U");
+                break;
+            case "ArrowDown":
+                e.preventDefault();
+                if (CONTEXT.DIRECTION === HORIZONTAL)
+                    CONTEXT.DIRECTION = VERTICAL;
+                else
+                    shiftFocus("D");
+                break;
+            case "ArrowLeft":
+                e.preventDefault();
+                if (CONTEXT.DIRECTION === VERTICAL)
+                    CONTEXT.DIRECTION = HORIZONTAL;
+                else
+                    shiftFocus("L");
+                break;
+            case "ArrowRight":
+                e.preventDefault();
+                if (CONTEXT.DIRECTION === VERTICAL)
+                    CONTEXT.DIRECTION = HORIZONTAL;
+                else
+                    shiftFocus("R");
+                break;
+            case "Space":
+                e.preventDefault();
+                CONTEXT.DIRECTION = CONTEXT.DIRECTION === HORIZONTAL ? VERTICAL : HORIZONTAL;
+                break;
+            case "Tab":
+                e.preventDefault();
+                shiftFocus("X");
+                break;
+            case "Delete":
+            case "Backspace":
+                e.preventDefault();
+                // if this tile is empty, go back a tile and clear it
+                if (focusedElem.innerHTML === "") {
+                    // go clear previous tile
+                    if (CONTEXT.DIRECTION === HORIZONTAL)
+                        shiftFocus("L");
+                    else
+                        shiftFocus("U");
+
+                    // clear the now-focused file
+                    $("#input-" + CONTEXT.POS.row + "-" + CONTEXT.POS.col)[0].innerHTML = "";
+                } else {
+                    // clear this tile
+                    focusedElem.innerHTML = "";
+                }
+                break;
+            default:
+                // check if we're typing
+                const char = e.originalEvent.key.toUpperCase();
+                if (validChars.includes(char)) {
+                    e.preventDefault();
+                    if (focusedElem.innerHTML !== "" && $(focusedElem).attr("data-has-changed") === "true") {
+                        // shift focus
+                        if (CONTEXT.DIRECTION === HORIZONTAL)
+                            shiftFocus("R", true);
+                        if (CONTEXT.DIRECTION === VERTICAL)
+                            shiftFocus("D", true);
+                    }
+                    
+                    // update the new element's value
+                    let focused = getFocusedInput();
+                    focused.innerHTML = char;
+                    $(focused).attr("data-has-changed", "true");
+                }
+                break;
+        }
+
+        // focus the now-selected element & update selection
+        updateSelection();
+    });
+
+    // bind click event to focus any tile
+    $(".tile:has(h1)").click(function() {
+        // set pos to this elem
+        const h1 = $(this).find("h1")[0];
+        CONTEXT.POS.row = parseInt(h1.id.substring(6).split("-")[0]);
+        CONTEXT.POS.col = parseInt(h1.id.substring(6).split("-")[1]);
+
+        // if this tile doesn't have a word in one direction, update the direction
+        if ($(h1).attr("data-down") !== "" && $(h1).attr("data-across") === "")
+            CONTEXT.DIRECTION = VERTICAL;
+        else if ($(h1).attr("data-across") !== "" && $(h1).attr("data-down") === "")
+            CONTEXT.DIRECTION = HORIZONTAL;
+
+        // focus the now-selected element & update selection
+        updateSelection();
+    });
+
+    // bind focus on click
+    $("body").click(e => {
+        // if we're somewhere over the #content div, focus
+        CONTEXT.isFocused = $(e.target).hasClass("tile") || $(e.target).is("#content") || $(e.target.parentElement).is("#clue-container");
+    });
+    
+    // bind text scrolling to hints (snagged this from the Mini Server as well)
+    const h2 = $("#clue-text")[0];
+    const DELAY = 3e3;
+    const OFFSET_INC = 1;
+    const RATE = 20; // in ms, interval callback rate
+    
+    setTimeout(() => {
+        // store interval
+        let offset = 0;
+        let lastStopped = 0;
+        textScrollInterval = setInterval(() => {
+            if (Date.now() - lastStopped < DELAY) return;
+
+            h2.scrollTo({left: offset, top: 0, behavior: "instant"});
+            offset += OFFSET_INC;
+
+            if (offset >= h2.scrollWidth - h2.clientWidth) {
+                offset = 0;
+                lastStopped = Date.now();
+                setTimeout(() => h2.scrollTo({left: 0, top: 0, behavior: "smooth"}), 0.67 * DELAY);
+            }
+        }, RATE);
+    }, DELAY);
+}
+
+function shiftFocus(direction, breakOnWord=false) {
+    const row = CONTEXT.POS.row;
+    const col = CONTEXT.POS.col;
+    const grid = CONTEXT.GRID;
+
+    switch (direction) {
+        case "L":
+            for (let i = col-1; i >= 0 && (!breakOnWord || grid[row][i] !== null); i--)
+                if (grid[row][i] !== null)
+                    return void (CONTEXT.POS.col = i);
+            break;
+        case "R":
+            for (let i = col+1; i < CONTEXT.TILE_COUNT && (!breakOnWord || grid[row][i] !== null); i++)
+                if (grid[row][i] !== null)
+                    return void (CONTEXT.POS.col = i);
+            break;
+        case "D":
+            for (let i = row+1; i < CONTEXT.TILE_COUNT && (!breakOnWord || grid[i][col] !== null); i++)
+                if (grid[i][col] !== null)
+                    return void (CONTEXT.POS.row = i);
+            break;
+        case "U":
+            for (let i = row-1; i >= 0 && (!breakOnWord || grid[i][col] !== null); i--)
+                if (grid[i][col] !== null)
+                    return void (CONTEXT.POS.row = i);
+            break;
+        case "X": // shift focus, wrapping around entire grid at most once
+            let hasStarted = false;
+            let hasFoundNull = false;
+            outer:
+            for (let r = 0; r < CONTEXT.TILE_COUNT; r = (r+1) % CONTEXT.TILE_COUNT) {
+                for (let c = 0; c < CONTEXT.TILE_COUNT; c++) {
+                    if (!hasStarted) {
+                        r = row;
+                        c = col;
+                        hasStarted = true;
+                        continue;
+                    } else if (r === row && c === col) {
+                        break outer;
+                    }
+
+                    if (grid[r][c] === null) hasFoundNull = true;
+
+                    if (grid[r][c] !== null && hasFoundNull) {
+                        CONTEXT.POS.row = r;
+                        CONTEXT.POS.col = c;
+                        break outer;
+                    }
+                }
+
+                // if skipping to the next row, we've gone to a new word anyways
+                hasFoundNull = true;
+            }
+            break;
+    }
+}
+
+function updateSelection() {
+    const {row, col} = CONTEXT.POS;
+    const dir = CONTEXT.DIRECTION;
+    const grid = CONTEXT.GRID;
+    
+    // remove all current selection
+    $(".tile.main-selected").removeClass("main-selected");
+    $(".tile.selected").removeClass("selected");
+
+    // focus main tile
+    $(".tile:has(#input-" + row + "-" + col + ")").addClass("main-selected");
+    $("#input-" + row + "-" + col)[0].focus();
+
+    // set data-has-changed to false on all non-main-selected tiles
+    $(".tile:not(.main-selected) > h1").attr("data-has-changed", "false");
+
+    // update typing direction
+    if (dir === VERTICAL) {
+        // add class to all other tiles in immediate row
+        for (let r = row+1; r < CONTEXT.TILE_COUNT && grid[r][col] !== null; r++)
+            $(".tile:has(#input-" + r + "-" + col + ")").addClass("selected");
+        for (let r = row-1; r >= 0 && grid[r][col] !== null; r--)
+            $(".tile:has(#input-" + r + "-" + col + ")").addClass("selected");
+    } else {
+        // add class to all other tiles in immediate col
+        for (let c = col+1; c < CONTEXT.TILE_COUNT && grid[row][c] !== null; c++)
+            $(".tile:has(#input-" + row + "-" + c + ")").addClass("selected");
+        for (let c = col-1; c >= 0 && grid[row][c] !== null; c--)
+            $(".tile:has(#input-" + row + "-" + c + ")").addClass("selected");
+    }
+
+    // update the hint/clue as well
+    const focusedElem = getFocusedInput();
+    const attrAcross = $(focusedElem).attr("data-across");
+    const attrDown = $(focusedElem).attr("data-down");
+
+    if (CONTEXT.DIRECTION === HORIZONTAL) {
+        // prefer across, but select down if not across available
+        if (attrAcross !== "") {
+            $("#clue-num").html( parseInt(attrAcross) );
+            $("#clue-text").html( CONTEXT.ACROSS[parseInt(attrAcross)].clue );
+        } else if (attrDown !== "") {
+            $("#clue-num").html( parseInt(attrDown) );
+            $("#clue-text").html( CONTEXT.DOWN[parseInt(attrDown)].clue );
+        }
+    } else {
+        // prefer down, but select across if not down available
+        if (attrDown !== "") {
+            $("#clue-num").html( parseInt(attrDown) );
+            $("#clue-text").html( CONTEXT.DOWN[parseInt(attrDown)].clue );
+        } else if (attrAcross !== "") {
+            $("#clue-num").html( parseInt(attrAcross) );
+            $("#clue-text").html( CONTEXT.ACROSS[parseInt(attrAcross)].clue );
+        }
+    }
+}
+
+/****************** game events ******************/
+
+// get the clue associated with a word or phrase (regardless of case), or null if not found
+function getClue(word) {
+    for (let i = 0; i < CONTEXT.WORDS.length; i++)
+        if (CONTEXT.WORDS[i].word.toLowerCase() === word.toLowerCase())
+            return CONTEXT.WORDS[i].clue;
+    
+    // base case
+    return null;
+}
+
+function checkGrid() {
+    // remove any incorrect letters
+    $(".tile > h1").each(function() {
+        const row = parseInt(this.id.substring(6).split("-")[0]);
+        const col = parseInt(this.id.substring(6).split("-")[1]);
+
+        if (CONTEXT.GRID[row][col].toUpperCase() !== this.innerHTML)
+            this.innerHTML = "";
+    });
+}
+
+/****************** generation algorithm ******************/
+
+// generates word placement
 function generateGrid() {
     // generate an empty grid
     const grid = [];
@@ -263,287 +555,6 @@ function generateGrid() {
 
     return grid;
 }
-
-/****************** event handlers ******************/
-
-const getFocusedInput = () => $("#input-" + CONTEXT.POS.row + "-" + CONTEXT.POS.col)[0];
-
-function bindEvents() {
-    const validChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    
-    // bind arrow events to document
-    $("body").on("keydown", e => {
-        if (!CONTEXT.isFocused) return;
-
-        const focusedElem = getFocusedInput();
-
-        // switch on key type
-        switch (e.originalEvent.code) {
-            case "ArrowUp":
-                e.preventDefault();
-                if (CONTEXT.DIRECTION === HORIZONTAL)
-                    CONTEXT.DIRECTION = VERTICAL;
-                else
-                    shiftFocus("U");
-                break;
-            case "ArrowDown":
-                e.preventDefault();
-                if (CONTEXT.DIRECTION === HORIZONTAL)
-                    CONTEXT.DIRECTION = VERTICAL;
-                else
-                    shiftFocus("D");
-                break;
-            case "ArrowLeft":
-                e.preventDefault();
-                if (CONTEXT.DIRECTION === VERTICAL)
-                    CONTEXT.DIRECTION = HORIZONTAL;
-                else
-                    shiftFocus("L");
-                break;
-            case "ArrowRight":
-                e.preventDefault();
-                if (CONTEXT.DIRECTION === VERTICAL)
-                    CONTEXT.DIRECTION = HORIZONTAL;
-                else
-                    shiftFocus("R");
-                break;
-            case "Space":
-                e.preventDefault();
-                CONTEXT.DIRECTION = CONTEXT.DIRECTION === HORIZONTAL ? VERTICAL : HORIZONTAL;
-                break;
-            case "Tab":
-                e.preventDefault();
-                shiftFocus("X");
-                break;
-            case "Delete":
-            case "Backspace":
-                e.preventDefault();
-                // if this tile is empty, go back a tile and clear it
-                if (focusedElem.innerHTML === "") {
-                    // go clear previous tile
-                    if (CONTEXT.DIRECTION === HORIZONTAL)
-                        shiftFocus("L");
-                    else
-                        shiftFocus("U");
-
-                    // clear the now-focused file
-                    $("#input-" + CONTEXT.POS.row + "-" + CONTEXT.POS.col)[0].innerHTML = "";
-                } else {
-                    // clear this tile
-                    focusedElem.innerHTML = "";
-                }
-                break;
-            default:
-                // check if we're typing
-                const char = e.originalEvent.key.toUpperCase();
-                if (validChars.includes(char)) {
-                    e.preventDefault();
-                    if (focusedElem.innerHTML !== "" && $(focusedElem).attr("data-has-changed") === "true") {
-                        // shift focus
-                        if (CONTEXT.DIRECTION === HORIZONTAL)
-                            shiftFocus("R", true);
-                        if (CONTEXT.DIRECTION === VERTICAL)
-                            shiftFocus("D", true);
-                    }
-                    
-                    // update the new element's value
-                    let focused = getFocusedInput();
-                    focused.innerHTML = char;
-                    $(focused).attr("data-has-changed", "true");
-                }
-                break;
-        }
-
-        // focus the now-selected element & update selection
-        updateSelection();
-    });
-
-    // bind click event to focus any tile
-    $(".tile:has(h1)").click(function() {
-        // set pos to this elem
-        const h1 = $(this).find("h1")[0];
-        CONTEXT.POS.row = parseInt(h1.id.substring(6).split("-")[0]);
-        CONTEXT.POS.col = parseInt(h1.id.substring(6).split("-")[1]);
-
-        // if this tile doesn't have a word in one direction, update the direction
-        if ($(h1).attr("data-down") !== "" && $(h1).attr("data-across") === "")
-            CONTEXT.DIRECTION = VERTICAL;
-        else if ($(h1).attr("data-across") !== "" && $(h1).attr("data-down") === "")
-            CONTEXT.DIRECTION = HORIZONTAL;
-
-        // focus the now-selected element & update selection
-        updateSelection();
-    });
-
-    // bind focus on click
-    $("body").click(e => {
-        // if we're somewhere over the #content div, focus
-        CONTEXT.isFocused = $(e.target).hasClass("tile") || $(e.target).is("#content");
-    });
-    
-    // bind text scrolling to hints (snagged this from the Mini Server as well)
-    const h2 = $("#clue-text")[0];
-    const DELAY = 3e3;
-    const OFFSET_INC = 1;
-    const RATE = 20; // in ms, interval callback rate
-    
-    setTimeout(() => {
-        // store interval
-        let offset = 0;
-        let lastStopped = 0;
-        textScrollInterval = setInterval(() => {
-            if (Date.now() - lastStopped < DELAY) return;
-
-            h2.scrollTo({left: offset, top: 0, behavior: "instant"});
-            offset += OFFSET_INC;
-
-            if (offset >= h2.scrollWidth - h2.clientWidth) {
-                offset = 0;
-                lastStopped = Date.now();
-                setTimeout(() => h2.scrollTo({left: 0, top: 0, behavior: "smooth"}), 0.67 * DELAY);
-            }
-        }, RATE);
-    }, DELAY);
-}
-
-function shiftFocus(direction, breakOnWord=false) {
-    const row = CONTEXT.POS.row;
-    const col = CONTEXT.POS.col;
-    const grid = CONTEXT.GRID;
-
-    switch (direction) {
-        case "L":
-            for (let i = col-1; i >= 0 && (!breakOnWord || grid[row][i] !== null); i--)
-                if (grid[row][i] !== null)
-                    return void (CONTEXT.POS.col = i);
-            break;
-        case "R":
-            for (let i = col+1; i < CONTEXT.TILE_COUNT && (!breakOnWord || grid[row][i] !== null); i++)
-                if (grid[row][i] !== null)
-                    return void (CONTEXT.POS.col = i);
-            break;
-        case "D":
-            for (let i = row+1; i < CONTEXT.TILE_COUNT && (!breakOnWord || grid[i][col] !== null); i++)
-                if (grid[i][col] !== null)
-                    return void (CONTEXT.POS.row = i);
-            break;
-        case "U":
-            for (let i = row-1; i >= 0 && (!breakOnWord || grid[i][col] !== null); i--)
-                if (grid[i][col] !== null)
-                    return void (CONTEXT.POS.row = i);
-            break;
-        case "X": // shift focus, wrapping around entire grid at most once
-            let hasStarted = false;
-            let hasFoundNull = false;
-            outer:
-            for (let r = 0; r < CONTEXT.TILE_COUNT; r = (r+1) % CONTEXT.TILE_COUNT) {
-                for (let c = 0; c < CONTEXT.TILE_COUNT; c++) {
-                    if (!hasStarted) {
-                        r = row;
-                        c = col;
-                        hasStarted = true;
-                        continue;
-                    } else if (r === row && c === col) {
-                        break outer;
-                    }
-
-                    if (grid[r][c] === null) hasFoundNull = true;
-
-                    if (grid[r][c] !== null && hasFoundNull) {
-                        CONTEXT.POS.row = r;
-                        CONTEXT.POS.col = c;
-                        break outer;
-                    }
-                }
-
-                // if skipping to the next row, we've gone to a new word anyways
-                hasFoundNull = true;
-            }
-            break;
-    }
-}
-
-function updateSelection() {
-    const {row, col} = CONTEXT.POS;
-    const dir = CONTEXT.DIRECTION;
-    const grid = CONTEXT.GRID;
-    
-    // remove all current selection
-    $(".tile.main-selected").removeClass("main-selected");
-    $(".tile.selected").removeClass("selected");
-
-    // focus main tile
-    $(".tile:has(#input-" + row + "-" + col + ")").addClass("main-selected");
-    $("#input-" + row + "-" + col)[0].focus();
-
-    // set data-has-changed to false on all non-main-selected tiles
-    $(".tile:not(.main-selected) > h1").attr("data-has-changed", "false");
-
-    // update typing direction
-    if (dir === VERTICAL) {
-        // add class to all other tiles in immediate row
-        for (let r = row+1; r < CONTEXT.TILE_COUNT && grid[r][col] !== null; r++)
-            $(".tile:has(#input-" + r + "-" + col + ")").addClass("selected");
-        for (let r = row-1; r >= 0 && grid[r][col] !== null; r--)
-            $(".tile:has(#input-" + r + "-" + col + ")").addClass("selected");
-    } else {
-        // add class to all other tiles in immediate col
-        for (let c = col+1; c < CONTEXT.TILE_COUNT && grid[row][c] !== null; c++)
-            $(".tile:has(#input-" + row + "-" + c + ")").addClass("selected");
-        for (let c = col-1; c >= 0 && grid[row][c] !== null; c--)
-            $(".tile:has(#input-" + row + "-" + c + ")").addClass("selected");
-    }
-
-    // update the hint/clue as well
-    const focusedElem = getFocusedInput();
-    const attrAcross = $(focusedElem).attr("data-across");
-    const attrDown = $(focusedElem).attr("data-down");
-
-    if (CONTEXT.DIRECTION === HORIZONTAL) {
-        // prefer across, but select down if not across available
-        if (attrAcross !== "") {
-            $("#clue-num").html( parseInt(attrAcross) );
-            $("#clue-text").html( CONTEXT.ACROSS[parseInt(attrAcross)].clue );
-        } else if (attrDown !== "") {
-            $("#clue-num").html( parseInt(attrDown) );
-            $("#clue-text").html( CONTEXT.DOWN[parseInt(attrDown)].clue );
-        }
-    } else {
-        // prefer down, but select across if not down available
-        if (attrDown !== "") {
-            $("#clue-num").html( parseInt(attrDown) );
-            $("#clue-text").html( CONTEXT.DOWN[parseInt(attrDown)].clue );
-        } else if (attrAcross !== "") {
-            $("#clue-num").html( parseInt(attrAcross) );
-            $("#clue-text").html( CONTEXT.ACROSS[parseInt(attrAcross)].clue );
-        }
-    }
-}
-
-/****************** game events ******************/
-
-// get the clue associated with a word or phrase (regardless of case), or null if not found
-function getClue(word) {
-    for (let i = 0; i < CONTEXT.WORDS.length; i++)
-        if (CONTEXT.WORDS[i].word.toLowerCase() === word.toLowerCase())
-            return CONTEXT.WORDS[i].clue;
-    
-    // base case
-    return null;
-}
-
-function checkGrid() {
-    // remove any incorrect letters
-    $(".tile > h1").each(function() {
-        const row = parseInt(this.id.substring(6).split("-")[0]);
-        const col = parseInt(this.id.substring(6).split("-")[1]);
-
-        if (CONTEXT.GRID[row][col].toUpperCase() !== this.innerHTML)
-            this.innerHTML = "";
-    });
-}
-
-/****************** generation algorithm ******************/
 
 // determine a score for each position (ie. where are certain words more desirable)
 function getScore(word, row, col, direction, grid, inPreStage=false) {

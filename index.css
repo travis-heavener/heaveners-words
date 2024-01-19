@@ -27,8 +27,8 @@ body {
     --border-thickness: 1.5px;
 
     background-image:
-        linear-gradient(calc(225deg + var(--back-anim-rot)), #535edbcc, #0000 80%),
-        linear-gradient(calc(135deg + var(--back-anim-rot)), #ff0c, #0000 80%),
+        linear-gradient(calc(225deg + var(--back-anim-rot)), #dba553cc, #0000 80%),
+        linear-gradient(calc(135deg + var(--back-anim-rot)), rgba(213, 115, 63, 0.8), #0000 80%),
         linear-gradient(calc(330deg + var(--back-anim-rot)), #eb1d1dcc, #0000 80%);
     
     animation: 20s linear backAnim infinite running;
@@ -105,20 +105,41 @@ body {
 
 #clue-container {
     --height: 48px;
-    position: relative;
-    width: var(--content-width);
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+
+    --padding: 1%;
+    padding: 0 var(--padding);
+
+    width: calc(var(--content-width) - 2 * var(--padding));
     height: var(--height);
 
     background-color: #f8f8f8;
     outline: calc(3 * var(--border-thickness)) solid #111; /* add border to parent to make outlines less "weird" */
 }
 
+#time-readout {
+    width: 15%;
+
+    color: #111;
+    font-size: calc(0.425 * var(--height));
+    text-align: center;
+}
+
+#clue-num {
+    margin-bottom: 3%;
+
+    width: 4%;
+
+    color: #111;
+    font-size: calc(0.33 * var(--height));
+    text-align: right;
+}
+
 #clue-text {
-    position: absolute;
-    left: 5%;
-    right: 15%;
-    top: 0;
-    bottom: 0;
+    width: 70%;
 
     color: #111;
     font-size: calc(0.42 * var(--height));
@@ -131,14 +152,23 @@ body {
     text-wrap: nowrap;
 }
 
-#clue-num {
-    position: absolute;
-    left: 1%;
-    right: 96.5%;
-    top: 20%;
-    bottom: 30%;
+#clue-container > button {
+    width: 10%;
+    height: 60%;
 
+    background-color: #fab2b2;
+    border: 2px solid #111;
+    border-radius: calc(0.12 * var(--height));
+    outline: none;
+    
     color: #111;
-    font-size: calc(0.33 * var(--height));
-    text-align: right;
+    font-family: serif;
+    font-size: calc(0.28 * var(--height));
+    font-weight: 600;
+
+    cursor: pointer;
+    transition: 0.25s background-color;
 }
+
+#clue-container > button:hover {  background-color: #ffcece;  }
+#clue-container > button:active {  background-color: #e37a7a;  }
