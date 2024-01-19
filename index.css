@@ -1,0 +1,144 @@
+*, html {
+    padding: 0;
+    margin: 0;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+
+    width: 100vw;
+    height: 100vh;
+}
+
+/* create background animation (grabbed from the concurrently-developed Mini Server project) */
+
+@property --back-anim-rot {
+    syntax: '<angle>';
+    inherits: false;
+    initial-value: 0deg;
+}
+
+body {
+    --back-anim-rot: 0deg;
+    --content-width: 0;
+    --border-thickness: 1.5px;
+
+    background-image:
+        linear-gradient(calc(225deg + var(--back-anim-rot)), #535edbcc, #0000 80%),
+        linear-gradient(calc(135deg + var(--back-anim-rot)), #ff0c, #0000 80%),
+        linear-gradient(calc(330deg + var(--back-anim-rot)), #eb1d1dcc, #0000 80%);
+    
+    animation: 20s linear backAnim infinite running;
+    
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+    background-attachment: fixed;
+}
+
+@keyframes backAnim {
+    from {  --back-anim-rot: 0deg;  }
+    to {  --back-anim-rot: 360deg;  }
+}
+
+/* content div formatting */
+
+#content {
+    display: grid;
+    width: var(--content-width);
+    height: var(--content-width);
+    /* rows/cols template filled in dynamically by JS */
+    
+    background-color: #111;
+    border: calc(3 * var(--border-thickness)) solid #111; /* add border to parent to make outlines less "weird" */
+}
+
+#content > div.tile {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+
+    background-color: #f8f8f8;
+
+    width: var(--tile-size);
+    height: var(--tile-size);
+    outline: calc(2 * var(--border-thickness)) solid #111;
+
+    position: relative;
+}
+
+#content > div.tile > h1 {
+    max-width: 90%;
+
+    color: #111;
+    font-family: serif;
+    font-size: calc(0.725 * var(--tile-size));
+    font-weight: 400;
+    text-align: center;
+
+    background-color: #0000;
+
+    outline: none;
+    border: none;
+
+    pointer-events: none;
+}
+
+#content > div.tile.hidden {  background-color: #222;  }
+#content > div.tile.selected {  background-color: #ffa899;  }
+#content > div.tile.main-selected {  background-color: #e94b4b;  }
+
+#content > div.tile > h2 {
+    position: absolute;
+    top: 0.2em;
+    left: 0.2em;
+
+    font-size: calc(0.31 * var(--tile-size));
+    font-family: serif;
+}
+
+/* clue container styling */
+
+#clue-container {
+    --height: 48px;
+    position: relative;
+    width: var(--content-width);
+    height: var(--height);
+
+    background-color: #f8f8f8;
+    outline: calc(3 * var(--border-thickness)) solid #111; /* add border to parent to make outlines less "weird" */
+}
+
+#clue-text {
+    position: absolute;
+    left: 5%;
+    right: 15%;
+    top: 0;
+    bottom: 0;
+
+    color: #111;
+    font-size: calc(0.42 * var(--height));
+    line-height: var(--height);
+
+    display: -webkit-box;
+    line-clamp: 1;
+    -webkit-line-clamp: 1;
+    overflow: hidden;
+    text-wrap: nowrap;
+}
+
+#clue-num {
+    position: absolute;
+    left: 1%;
+    right: 96.5%;
+    top: 20%;
+    bottom: 30%;
+
+    color: #111;
+    font-size: calc(0.33 * var(--height));
+    text-align: right;
+}
