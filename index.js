@@ -23,7 +23,9 @@ const CONTEXT = {
         "row": 0,
         "col": 0,
     },
-    "isFocused": false
+    "isFocused": false,
+    "gameClock": null,
+    "isCompleted": false
 };
 
 // most to least common letters used in Latin
@@ -93,7 +95,7 @@ $(document).ready(async () => {
 
     // set timer interval
     const start = Date.now();
-    setInterval(() => {
+    CONTEXT.gameClock = setInterval(() => {
         const elapsedSec = ~~(Date.now() - start) / 1e3;
         const hours = ~~(elapsedSec / 3600);
         const minutes = ~~(elapsedSec % 3600 / 60);
@@ -175,7 +177,8 @@ function bindEvents() {
             default:
                 // check if we're typing
                 const char = e.originalEvent.key.toUpperCase();
-                if (validChars.includes(char)) {
+                const isMeta = e.ctrlKey || e.shiftKey || e.metaKey || e.altKey;
+                if (validChars.includes(char) && !isMeta && !CONTEXT.isCompleted) {
                     e.preventDefault();
                     if (focusedElem.innerHTML !== "" && $(focusedElem).attr("data-has-changed") === "true") {
                         // shift focus
@@ -189,6 +192,9 @@ function bindEvents() {
                     let focused = getFocusedInput();
                     focused.innerHTML = char;
                     $(focused).attr("data-has-changed", "true");
+
+                    // check grid on focus change
+                    checkGrid();
                 }
                 break;
         }
@@ -338,23 +344,31 @@ function updateSelection() {
     const attrAcross = $(focusedElem).attr("data-across");
     const attrDown = $(focusedElem).attr("data-down");
 
+    const escapeHint = text => {
+        let match = text.match(/(?<=\*).+?(?=\*)/);
+            if (match !== null)
+            return text.replace(`*${match[0]}*`, `<em>${match[0]}</em>`);
+        else
+            return text;
+    };
+
     if (CONTEXT.DIRECTION === HORIZONTAL) {
         // prefer across, but select down if not across available
         if (attrAcross !== "") {
             $("#clue-num").html( parseInt(attrAcross) );
-            $("#clue-text").html( CONTEXT.ACROSS[parseInt(attrAcross)].clue );
+            $("#clue-text").html( escapeHint( CONTEXT.ACROSS[parseInt(attrAcross)].clue ) );
         } else if (attrDown !== "") {
             $("#clue-num").html( parseInt(attrDown) );
-            $("#clue-text").html( CONTEXT.DOWN[parseInt(attrDown)].clue );
+            $("#clue-text").html( escapeHint( CONTEXT.DOWN[parseInt(attrDown)].clue ) );
         }
     } else {
         // prefer down, but select across if not down available
         if (attrDown !== "") {
             $("#clue-num").html( parseInt(attrDown) );
-            $("#clue-text").html( CONTEXT.DOWN[parseInt(attrDown)].clue );
+            $("#clue-text").html( escapeHint( CONTEXT.DOWN[parseInt(attrDown)].clue ) );
         } else if (attrAcross !== "") {
             $("#clue-num").html( parseInt(attrAcross) );
-            $("#clue-text").html( CONTEXT.ACROSS[parseInt(attrAcross)].clue );
+            $("#clue-text").html( escapeHint( CONTEXT.ACROSS[parseInt(attrAcross)].clue ) );
         }
     }
 }
@@ -371,15 +385,26 @@ function getClue(word) {
     return null;
 }
 
-function checkGrid() {
+function checkGrid(replaceWrong=false) {
     // remove any incorrect letters
-    $(".tile > h1").each(function() {
-        const row = parseInt(this.id.substring(6).split("-")[0]);
-        const col = parseInt(this.id.substring(6).split("-")[1]);
+    const h1s = [...$(".tile > h1")];
+    let isCorrect = true;
+    h1s.forEach((h1) => {
+        const row = parseInt(h1.id.substring(6).split("-")[0]);
+        const col = parseInt(h1.id.substring(6).split("-")[1]);
 
-        if (CONTEXT.GRID[row][col].toUpperCase() !== this.innerHTML)
-            this.innerHTML = "";
+        if (CONTEXT.GRID[row][col].toUpperCase() !== h1.innerHTML) {
+            if (replaceWrong) h1.innerHTML = "";
+            isCorrect = false;
+        }
     });
+
+    // handle game win
+    if (isCorrect) {
+        console.log("You win!\nElapsed: " + $("#time-readout").html());
+        clearInterval(CONTEXT.gameClock);
+        CONTEXT.isCompleted = true;
+    }
 }
 
 /****************** generation algorithm ******************/
