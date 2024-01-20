@@ -470,9 +470,8 @@ function generateGrid() {
     // place remaining words
     while (words.length && placedCount < maxWords) {
         // get the valid positions for each word
-        let validPositions = [];
-        for (let i = 0; i < words.length; i++) {
-            const word = words[i].word;
+        let validPositions = [], word;
+        for (let i = 0; i < words.length && (word = words[i].word); i++) {
 
             // for each position on the board, check if we can place the word down or across away from top-left
             for (let r = 0; r < CONTEXT.TILE_COUNT; r++) {
@@ -483,10 +482,8 @@ function generateGrid() {
 
                     // check if the word can be placed
                     const placements = getWordPlacements(word, r, c, grid);
-                    for (let p of placements) {
-                        const score = getScore(word, r, c, p, grid);
-                        validPositions.push([score, r, c, p, i]);
-                    }
+                    for (let p of placements)
+                        validPositions.push([getScore(word, r, c, p, grid), r, c, p, i]);
                 }
             }
         }
@@ -503,9 +500,7 @@ function generateGrid() {
 
             placeWord(word.word, pos[1], pos[2], grid, pos[3]);
             placedCount++;
-
-            // remove the word
-            words.splice(pos[4], 1);
+            words.splice(pos[4], 1); // remove the word
             continue;
         }
 
@@ -744,19 +739,56 @@ function getScore(word, row, col, direction, grid, inPreStage=false) {
 
 // puts a word into the grid at the current position (assumes overflow has been checked)
 function placeWord(word, row, col, grid, direction) {
+    const extraWords = []; // [word, row, col, dir]
+    const getPos = (r, c) => (r >= 0 && r < CONTEXT.TILE_COUNT && c >= 0 && c < CONTEXT.TILE_COUNT) ? grid[r][c] : null;
+
     for (let l = 0; l < word.length; l++) {
         if (direction === HORIZONTAL)
             grid[row][col+l] = word[l];
         else
             grid[row+l][col] = word[l];
+
+        // check if we intersect another word
+        if (direction === HORIZONTAL) {
+            if (getPos(row-1, col+l) !== null || getPos(row+1, col+l) !== null) {
+                // check that the letter we're up against still makes a word
+                let hitWord = word[l], p, r;
+                for (r = row-1; (p = getPos(r, col+l)) !== null; r--) hitWord = p + hitWord;
+                let minRow = r+1;
+                for (r = row+1; (p = getPos(r, col+l)) !== null; r++) hitWord += p;
+
+                // append perpendicular to extraWords
+                if (!extraWords.map(w => w[0]).includes(hitWord.toLowerCase()))
+                    extraWords.push([hitWord.toLowerCase(), minRow, col+l, VERTICAL]);
+            }
+        } else {
+            if (getPos(row+l, col-1) !== null || getPos(row+l, col+1) !== null) {
+                // check that the letter we're up against still makes a word
+                let hitWord = word[l], p, c;
+                for (c = col-1; (p = getPos(row+l, c)) !== null; c--) hitWord = p + hitWord;
+                let minCol = c+1;
+                for (c = col+1; (p = getPos(row+l, c)) !== null; c++) hitWord += p;
+
+                // append perpendicular to extraWords
+                if (!extraWords.map(w => w[0]).includes(hitWord.toLowerCase()))
+                    extraWords.push([hitWord.toLowerCase(), row+l, minCol, HORIZONTAL]);
+            }
+        }
     }
 
     // add word & its clue to the CONTEXT.ACROSS/DOWN
     // start by placing across each column then each row (reading left -> right essentially)
     // when all words are placed, then we determine each number
-    const index = col + row * CONTEXT.TILE_COUNT;
-    const wordInfo = {"word": word.toUpperCase(), "clue": getClue(word)};
+    let index = col + row * CONTEXT.TILE_COUNT;
+    let wordInfo = {"word": word.toUpperCase(), "clue": getClue(word)};
     CONTEXT[direction === HORIZONTAL ? "ACROSS" : "DOWN"][index] = wordInfo;
+
+    // add all extra words (I cannot believe this worked first try)
+    for (let extraWord of extraWords) {
+        index = extraWord[2] + extraWord[1] * CONTEXT.TILE_COUNT;
+        wordInfo = {"word": extraWord[0].toUpperCase(), "clue": getClue(extraWord[0])};
+        CONTEXT[extraWord[3] === HORIZONTAL ? "ACROSS" : "DOWN"][index] = wordInfo;
+    }
 }
 
 // gets the direction of all possible word placements at this position
@@ -766,60 +798,58 @@ function getWordPlacements(word, row, col, grid) {
         return [];
 
 
-    const getPos = (r, c) => {
-        if (r >= 0 && r < CONTEXT.TILE_COUNT && c >= 0 && c < CONTEXT.TILE_COUNT)
-            return grid[r][c];
-        else
-            return null;
-    };
+    const getPos = (r, c) => (r >= 0 && r < CONTEXT.TILE_COUNT && c >= 0 && c < CONTEXT.TILE_COUNT) ? grid[r][c] : null;
 
     // check horizontal
-    let horiz = null;
-    if (
-        col + word.length <= CONTEXT.TILE_COUNT &&
-        !((grid[row][col] === null && (getPos(row-1, col) !== null || getPos(row+1, col) !== null))
-        || getPos(row, col-1) !== null)
-    ) { // check for grid overflow
-        for (let l = 1; l < word.length; l++) {
+    const upperWords = CONTEXT.WORDS.map(w => w.word.toUpperCase());
+    let isHorizontal = false;
+    if (col + word.length <= CONTEXT.TILE_COUNT && getPos(row, col) === null && getPos(row, col-1) === null) {
+        for (let l = 0; l < word.length; l++) {
             // check for non-fitting letters if the letter doesn't match existing and existing isn't blank/null
-            if (grid[row][col+l] !== word[l] && grid[row][col+l] !== null)
-                break;
+            if (getPos(row, col+l) !== word[l] && getPos(row, col+l) !== null) break;
 
             // check if we're up against a word
-            if (getPos(row-1, col+l) !== null || getPos(row+1, col+l) !== null || getPos(row, col+l+1) !== null)
-                break;
+            if (getPos(row-1, col+l) !== null || getPos(row+1, col+l) !== null) {
+                // check that the letter we're up against still makes a word
+                let hitWord = word[l], p;
+                for (let r = row-1; (p = getPos(r, col+l)) !== null; r--) hitWord = p + hitWord;
+                for (let r = row+1; (p = getPos(r, col+l)) !== null; r++) hitWord += p;
+
+                // if this connecting word isn't valid, break
+                if (!upperWords.includes(hitWord.toUpperCase())) break;
+            }
 
             // if we're still in the loop and this is the last index, then the word fits
-            if (l+1 === word.length)
-                horiz = HORIZONTAL;
+            if (l+1 === word.length && getPos(row, col+l+1) === null) isHorizontal = true;
         }
     }
     
     // check vertical
-    let vert = null;
-    if (
-        row + word.length <= CONTEXT.TILE_COUNT &&
-        !((grid[row][col] === null && (getPos(row, col-1) !== null || getPos(row, col+1) !== null))
-        || getPos(row-1, col) !== null)
-    ) { // check for grid overflow
-        for (let l = 1; l < word.length; l++) {
+    let isVertical = false;
+    if (row + word.length <= CONTEXT.TILE_COUNT && getPos(row, col) === null && getPos(row-1, col) === null) {
+        for (let l = 0; l < word.length; l++) {
             // check for non-fitting letters if the letter doesn't match existing and existing isn't blank/null
-            if (grid[row+l][col] !== word[l] && grid[row+l][col] !== null)
-                break;
+            if (getPos(row+l, col) !== word[l] && getPos(row+l, col) !== null) break;
 
             // check if we're up against a word
-            if (getPos(row+l, col-1) !== null || getPos(row+l, col+1) !== null || getPos(row+l+1, col) !== null)
-                break;
+            if (getPos(row+l, col-1) !== null || getPos(row+l, col+1) !== null) {
+                // check that the letter we're up against still makes a word
+                let hitWord = word[l], p;
+                for (let c = col-1; (p = getPos(row+l, c)) !== null; c--) hitWord = p + hitWord;
+                for (let c = col+1; (p = getPos(row+l, c)) !== null; c++) hitWord += p;
+
+                // if this connecting word isn't valid, break
+                if (!upperWords.includes(hitWord.toUpperCase())) break;
+            }
 
             // if we're still in the loop and this is the last index, then the word fits
-            if (l+1 === word.length)
-                vert = VERTICAL;
+            if (l+1 === word.length && getPos(row+l+1, col) === null) isVertical = true;
         }
     }
 
     const placements = [];
-    if (horiz !== null) placements.push(horiz);
-    if (vert !== null) placements.push(vert);
+    if (isHorizontal) placements.push(HORIZONTAL);
+    if (isVertical) placements.push(VERTICAL);
 
     return placements;
 }
