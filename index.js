@@ -13,7 +13,7 @@ const CONTEXT = {
     "SEED": null,
     "RANDOM": () => console.warn("No seeded random initialized yet."),
     "WORDS": [],
-    "STAGE_1": 16, // how many words to place in the first generation stage
+    "STAGE_1": 18, // how many words to place in the first generation stage
     "MIN_SCORE": 4,
     "DIRECTION": null,
     "GRID": null,
@@ -68,8 +68,18 @@ $(document).ready(async () => {
     for (let i = 0; i < CONTEXT.TILE_COUNT ** 2; i++)
         $("#content").append("<div class='tile'></div>");
 
-    // generate grid
-    CONTEXT.GRID = generateGrid();
+    // generate best grid of N
+    const grids = [];
+    for (let i = 0; i < 1; i++) {
+        grids.push(generateGrid());
+        console.log(grids[grids.length-1][1]);
+    }
+
+    // get best grid
+    const grid = grids.sort((a,b) => b[0]-a[0])[0][0];
+    CONTEXT.ACROSS = grids[0][2];
+    CONTEXT.DOWN = grids[0][3];
+    drawGrid(CONTEXT.GRID = grid);
 
     // bind resize event
     $(window).on("resize", (e) => {
@@ -385,7 +395,7 @@ function getClue(word) {
     return null;
 }
 
-function checkGrid(replaceWrong=false) {
+function checkGrid(replaceIncorrect=false) {
     // remove any incorrect letters
     const h1s = [...$(".tile > h1")];
     let isCorrect = true;
@@ -394,7 +404,7 @@ function checkGrid(replaceWrong=false) {
         const col = parseInt(h1.id.substring(6).split("-")[1]);
 
         if (CONTEXT.GRID[row][col].toUpperCase() !== h1.innerHTML) {
-            if (replaceWrong) h1.innerHTML = "";
+            if (replaceIncorrect) h1.innerHTML = "";
             isCorrect = false;
         }
     });
@@ -409,110 +419,7 @@ function checkGrid(replaceWrong=false) {
 
 /****************** generation algorithm ******************/
 
-// generates word placement
-function generateGrid() {
-    // generate an empty grid
-    const grid = [];
-    for (let i = 0; i < CONTEXT.TILE_COUNT; i++) {
-        grid.push(
-            Array.apply(null, new Array(CONTEXT.TILE_COUNT)
-        ).map(() => null));
-    }
-
-    // randomize THEN sort words by length desc
-    let words = CONTEXT.WORDS.slice().sort(() => CONTEXT.RANDOM() - 0.5); // seeded, randomized sort
-    // words = words.sort((a,b) => b.word.length - a.word.length); // sort longest-first
-    // words = words.sort((a,b) => a.word.length - b.word.length); // sort shortest-first
-    
-    // place words in the grid
-    const maxWords = 110;
-    let placedCount = 0; // add 1 for every word on the board
-
-    // keep going until we're out of words or have reached the stage 1 cap
-    for (let i = 0; i < words.length && placedCount < CONTEXT.STAGE_1; i++) {
-        // check if the word fits
-        const word = words[i].word;
-        
-        // for each position on the board, check if we can place the word down or across away from top-left
-        let validPositions = [];
-        for (let r = 0; r < CONTEXT.TILE_COUNT; r++) {
-            for (let c = 0; c < CONTEXT.TILE_COUNT; c++) {
-                // speed optimization, if the word can't fit skip the rest of this row
-                if (word.length + c > CONTEXT.TILE_COUNT && word.length + r > CONTEXT.TILE_COUNT)
-                    break;
-
-                // check if the word can be placed
-                const placements = getWordPlacements(word, r, c, grid);
-                for (let p of placements) {
-                    const score = getScore(word, r, c, p, grid, true);
-                    validPositions.push([score, r, c, p]);
-                }
-            }
-        }
-
-        // find best possible position
-        if (validPositions.length) {
-            // sort highest score first
-            const sortedPositions = validPositions.sort((a,b) => b[0] - a[0]);
-            const pos = sortedPositions[0]; // [score, row, col, direction]
-
-            // if the score is greater than the accepted threshold, place the word
-            if (pos[0] > CONTEXT.MIN_SCORE) {
-                placeWord(word, pos[1], pos[2], grid, pos[3]);
-                placedCount++;
-                
-                // remove word from words
-                words.splice(i--, 1);
-            }
-        }
-    }
-
-    // place remaining words
-    while (words.length && placedCount < maxWords) {
-        // get the valid positions for each word
-        let validPositions = [];
-        for (let i = 0; i < words.length; i++) {
-            const word = words[i].word;
-
-            // for each position on the board, check if we can place the word down or across away from top-left
-            for (let r = 0; r < CONTEXT.TILE_COUNT; r++) {
-                for (let c = 0; c < CONTEXT.TILE_COUNT; c++) {
-                    // speed optimization, if the word can't fit skip the rest of this row
-                    if (word.length + c > CONTEXT.TILE_COUNT && word.length + r > CONTEXT.TILE_COUNT)
-                        break;
-
-                    // check if the word can be placed
-                    const placements = getWordPlacements(word, r, c, grid);
-                    for (let p of placements) {
-                        const score = getScore(word, r, c, p, grid);
-                        validPositions.push([score, r, c, p, i]);
-                    }
-                }
-            }
-        }
-
-        // find best possible position
-        if (validPositions.length) {
-            // sort highest score first
-            const sortedPositions = validPositions.sort((a,b) => b[0] - a[0]);
-            const pos = sortedPositions[0]; // [score, row, col, direction, word index]
-            const word = words[pos[4]];
-
-            // place the highest word
-            if (pos[0] === -Infinity) break;
-
-            placeWord(word.word, pos[1], pos[2], grid, pos[3]);
-            placedCount++;
-
-            // remove the word
-            words.splice(pos[4], 1);
-            continue;
-        }
-
-        // base case
-        break;
-    }
-
+function drawGrid(grid) {
     // place each letter onto the grid
     for (let r = 0; r < grid.length; r++) {
         for (let c = 0; c < grid[r].length; c++) {
@@ -577,15 +484,92 @@ function generateGrid() {
         CONTEXT.ACROSS = across;
         CONTEXT.DOWN = down;
     }
+}
 
-    return grid;
+// generates word placement
+function generateGrid() {
+    // generate an empty grid
+    const grid = [];
+    for (let i = 0; i < CONTEXT.TILE_COUNT; i++) {
+        grid.push(
+            Array.apply(null, new Array(CONTEXT.TILE_COUNT)
+        ).map(() => null));
+    }
+
+    // randomize THEN sort words by length desc
+    let words = CONTEXT.WORDS.slice().sort(() => CONTEXT.RANDOM() - 0.5); // seeded, randomized sort
+    // words = words.sort((a,b) => b.word.length - a.word.length); // sort longest-first
+    // words = words.sort((a,b) => a.word.length - b.word.length); // sort shortest-first
+    
+    // place words in the grid
+    const maxWords = 110;
+    let placedCount = 0; // add 1 for every word on the board
+    
+    // place as many words as possible
+    while (words.length && placedCount < maxWords) {
+        // get the valid positions for each word
+        let validPositions = {};
+        for (let i = 0; i < words.length; i++) {
+            const word = words[i].word;
+
+            // for each position on the board, check if we can place the word down or across away from top-left
+            for (let r = 0; r < CONTEXT.TILE_COUNT; r++) {
+                for (let c = 0; c < CONTEXT.TILE_COUNT; c++) {
+                    // speed optimization, if the word can't fit skip the rest of this row
+                    if (word.length + c > CONTEXT.TILE_COUNT && word.length + r > CONTEXT.TILE_COUNT)
+                        break;
+
+                    // check if the word can be placed
+                    const placements = getWordPlacements(word, r, c, grid);
+                    for (let p of placements) {
+                        const score = getScore(word, r, c, p, grid, placedCount);
+
+                        // only store the best score
+                        if (!validPositions[i] || validPositions[i][0] < score)
+                            validPositions[i] = [score, r, c, p, i];
+                    }
+                }
+            }
+        }
+
+        // find best possible position
+        if (Object.keys(validPositions).length) {
+            // sort highest score first
+            let sortedPositions = Object.values(validPositions).sort((a,b) => b[0] - a[0]);
+
+            const pos = sortedPositions[0]; // [score, row, col, direction, word index]
+            const word = words[pos[4]];
+
+            // place the highest word
+            if (pos[0] === -Infinity) break;
+
+            placeWord(word.word, pos[1], pos[2], grid, pos[3]);
+            placedCount++;
+
+            // remove the word
+            words.splice(pos[4], 1);
+            continue;
+        }
+
+        // base case
+        break;
+    }
+
+    // evaluate this grid
+    let usedSpaces = 0;
+    for (let r = 0; r < grid.length; r++)
+        for (let c = 0; c < grid[r].length; c++)
+            usedSpaces += grid[r][c] !== null;
+
+    // reset CONTEXT.ACROSS/DOWN
+    const across = CONTEXT.ACROSS, down = CONTEXT.DOWN;
+    CONTEXT.ACROSS = {}, CONTEXT.DOWN = {};
+    return [grid, usedSpaces / (CONTEXT.TILE_COUNT ** 2), across, down];
 }
 
 // determine a score for each position (ie. where are certain words more desirable)
-function getScore(word, row, col, direction, grid, inPreStage=false) {
-    const longWordThresh = 6; // the max length of what a "short" word is
+function getScore(word, row, col, direction, grid, placedCount) {
     const middle = CONTEXT.TILE_COUNT / 2;
-    const clamp = x => Math.tanh(x/20); // clamp values between [-1, 1]
 
     // axis-centered row/col
     const centeredRow = (direction === VERTICAL) ? row + word.length/2 : row;
@@ -594,11 +578,16 @@ function getScore(word, row, col, direction, grid, inPreStage=false) {
     // initial score
     let score = 0;
 
-    if (inPreStage) {
-        // if less than 10 words on board, focus on corners then outside ring
-        
+    // check if we're in the prestage
+    if (placedCount < CONTEXT.STAGE_1) {
+        // focus on filling in the outside closer to the corners
+
         // add weight to words near 4-6 chars (between -3, 3)
         score += 6 * Math.exp((word.length - 5) ** 2 / -6) - 3;
+
+        // discourage words that are over 7 characters
+        if (word.length > 7)
+            score -= word.length ** 2;
 
         // add points to words whose average letter frequency is highest
         {
@@ -612,19 +601,19 @@ function getScore(word, row, col, direction, grid, inPreStage=false) {
                     console.warn("Invalid character \"" + char + "\" in word: \"" + word + "\".");
                 }
             }
-            score += 4 * letterInc / word.length / (lenLetters-1) - 3; // between -3, 1
+            score += 4 * letterInc / word.length / (lenLetters-1) - 2; // between -2, 2
         }
 
         // add points to words that start in a corner and lie along the edge that are close to 5 chars
         if (
-            ((row === 0 || row === CONTEXT.TILE_COUNT-1) && direction === HORIZONTAL) ||
-            ((col === 0 || col === CONTEXT.TILE_COUNT-1) && direction === VERTICAL)
+            ((row === 0 || row + word.length === CONTEXT.TILE_COUNT) && direction === HORIZONTAL) ||
+            ((col === 0 || col + word.length === CONTEXT.TILE_COUNT) && direction === VERTICAL)
         )
-            score += 5 * Math.exp((word.length - 5) ** 2 / -6) - 2;
+            score += 8 * Math.exp((word.length - 5) ** 2 / -6) - 2;
 
         // add points for touching a corner
         if ((row === 0 || row + word.length === CONTEXT.TILE_COUNT) && (col === 0 || col + word.length === CONTEXT.TILE_COUNT))
-            score += 3;
+            score += 3 * word.length;
         
         // add points to letters that "cross" other "words" (see what I did there)
         {
@@ -634,56 +623,54 @@ function getScore(word, row, col, direction, grid, inPreStage=false) {
                     const rowPrev = row-1 >= 0 ? grid[row-1][col+l] : null;
                     const rowNext = row+1 < CONTEXT.TILE_COUNT ? grid[row+1][col+l] : null;
 
-                    if (rowPrev !== null || rowNext !== null)
-                        crossInc += 1;
+                    crossInc += (rowPrev !== null) + (rowNext !== null);
                 } else {
                     const colPrev = col-1 >= 0 ? grid[row+l][col-1] : null;
                     const colNext = col+1 < CONTEXT.TILE_COUNT ? grid[row+l][col+1] : null;
 
-                    if (colPrev !== null || colNext !== null)
-                        crossInc += 1;
+                    crossInc += (colPrev !== null) + (colNext !== null);
                 }
             }
 
-            score += 4 * crossInc;
+            score += Math.max(5, word.length) * crossInc;
         }
 
         // remove points the closer a word is to the middle
-        score -= 0.5 * Math.hypot(1 - Math.abs(middle - centeredRow) / middle, 1 - Math.abs(middle - centeredCol) / middle);
-
-        // remove points from words that are in past the outer-most ring (they prevent outer ring from filling)
-
-        if (
-            ((row >= 1 && row + word.length <= CONTEXT.TILE_COUNT-1) && direction === HORIZONTAL) ||
-            ((col >= 1 && col + word.length <= CONTEXT.TILE_COUNT-1) && direction === VERTICAL)
-        )
-            score -= Math.max(word.length, 6);
+        score -= 4 * Math.hypot(1 - Math.abs(middle - centeredRow) / middle, 1 - Math.abs(middle - centeredCol) / middle);
         
         // remove points from words that are close to a corner and run perpendicular to their edge
         if (
             (row === 0 || row + word.length === CONTEXT.TILE_COUNT) &&
-            (col > 0 && col + word.length < CONTEXT.TILE_COUNT) &&
+            (col > 0 && col < CONTEXT.TILE_COUNT) &&
             direction === VERTICAL
         )
-            score -= Math.max(4, middle - Math.abs(middle - col));
+            score -= 3 * Math.max(4, middle - Math.abs(middle - centeredCol)) * CONTEXT.RANDOM();
         
         if (
             (col === 0 || col + word.length === CONTEXT.TILE_COUNT) &&
-            (row > 0 && row + word.length < CONTEXT.TILE_COUNT) &&
+            (row > 0 && row < CONTEXT.TILE_COUNT) &&
             direction === HORIZONTAL
         )
-            score -= Math.max(4, middle - Math.abs(middle - row));
+            score -= 3 * Math.max(4, middle - Math.abs(middle - centeredRow)) * CONTEXT.RANDOM();
         
+        // remove points from words that don't touch an edge
+        if (row !== 0 && row + word.length !== CONTEXT.TILE_COUNT &&
+            col !== 0 && col + word.length !== CONTEXT.TILE_COUNT)
+            score -= 3 * Math.min(5, word.length);
+        
+        // add some randomness to the mix
+        score = 4 * CONTEXT.RANDOM() * score - 2;
+
         return score;
 
     } else {
-        // strictly connect words now
+        // aim to connect words now
 
         // add more points the shorter a word is and the closer it is to a corner
         {
             let lengthInc = 10 * Math.exp(-0.5 * word.length) - 0.5; // once we hit past 6 characters, the score drops
             let cornerInc = (Math.SQRT2 * 2 / middle) * Math.hypot(Math.abs(middle-centeredRow), Math.abs(middle-centeredCol)) - 1;
-            score += 5 * (lengthInc * cornerInc);
+            score += 6 * (lengthInc * cornerInc);
         }
 
         // add points to letters that "cross" other "words" (see what I did there)
@@ -706,21 +693,9 @@ function getScore(word, row, col, direction, grid, inPreStage=false) {
             }
 
             if (crossInc === 0)
-                score -= 3 * word.length;
+                score -= 10 * word.length;
             else
-                score += 7 * crossInc;
-        }
-
-        // add points for long words across middle or shorter words not across middle
-        {
-            let lengthMiddleScore;
-            if (word.length > longWordThresh) {
-                lengthMiddleScore = 2 * (direction === HORIZONTAL) * (0.5 - Math.abs((middle - row) / middle));
-                lengthMiddleScore -= Math.abs((middle - centeredCol) / middle);
-            } else {
-                lengthMiddleScore = Math.abs((middle - centeredRow) / middle) - 0.5; // direction doesn't necessarily matter for shorter words
-            }
-            score += 4 * lengthMiddleScore;
+                score += 20 * crossInc;
         }
 
         // add points to words which consist of more common letters
@@ -735,7 +710,7 @@ function getScore(word, row, col, direction, grid, inPreStage=false) {
                     console.warn("Invalid character \"" + char + "\" in word: \"" + word + "\".");
                 }
             }
-            score += 4 * letterInc / word.length / (lenLetters-1) - 3; // between -3, 1
+            score += 10 * letterInc / word.length / (lenLetters-1);
         }
 
         return score;
