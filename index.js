@@ -69,13 +69,14 @@ $(document).ready(async () => {
         $("#content").append("<div class='tile'></div>");
 
     // generate best grid of N
-    const grids = [];
+    let grids = [];
     for (let i = 0; i < 1; i++)
         grids.push(generateGrid());
 
     // get best grid
-    const grid = grids.sort((a,b) => b[0]-a[0])[0][0];
-    console.log("Grid tiles filled: " + grid[1]);
+    grids = grids.sort((a,b) => b[0]-a[0]);
+    const grid = grids[0][0];
+    console.log("Grid tiles filled: " + grids[0][1]);
     CONTEXT.ACROSS = grids[0][2];
     CONTEXT.DOWN = grids[0][3];
     drawGrid(CONTEXT.GRID = grid);
@@ -441,15 +442,41 @@ function drawGrid(grid) {
         // block scoped purely so I can collapse this code in VS lol
         const wordsFlat = {};
 
-        // flatten down/across words objects into a single object
-        for (let index in CONTEXT.ACROSS)
-            wordsFlat[index] = [HORIZONTAL];
+        // remove any words that are entirely contained within another word (ie. "mus" in "domus")
+        // AND flatten down/across words objects into a single object
+        outerLoop:
+        for (let index in CONTEXT.ACROSS) {
+            const row = ~~(index / CONTEXT.TILE_COUNT), col = index % CONTEXT.TILE_COUNT;
+            for (let subIndex in CONTEXT.ACROSS) {
+                if (CONTEXT.ACROSS[subIndex].word === CONTEXT.ACROSS[index].word) continue;
 
-        for (let index in CONTEXT.DOWN)
+                const subRow = ~~(subIndex / CONTEXT.TILE_COUNT), subCol = subIndex % CONTEXT.TILE_COUNT;
+                if (row !== subRow) continue;
+
+                if (subCol <= col && subCol + CONTEXT.ACROSS[subIndex].word.length >= col + CONTEXT.ACROSS[index].word.length)
+                    continue outerLoop;
+            }
+            wordsFlat[index] = [HORIZONTAL];
+        }
+
+        outerLoop:
+        for (let index in CONTEXT.DOWN) {
+            const row = ~~(index / CONTEXT.TILE_COUNT), col = index % CONTEXT.TILE_COUNT;
+            for (let subIndex in CONTEXT.DOWN) {
+                if (CONTEXT.DOWN[subIndex].word === CONTEXT.DOWN[index].word) continue;
+
+                const subRow = ~~(subIndex / CONTEXT.TILE_COUNT), subCol = subIndex % CONTEXT.TILE_COUNT;
+                if (col !== subCol) continue;
+
+                if (subRow <= row && subRow + CONTEXT.DOWN[subIndex].word.length >= row + CONTEXT.DOWN[index].word.length)
+                    continue outerLoop;
+            }
+
             if (wordsFlat[index])
                 wordsFlat[index].push(VERTICAL);
             else
                 wordsFlat[index] = [VERTICAL];
+        }
 
         // plot each number
         const across = {}, down = {};
@@ -645,12 +672,6 @@ function getScore(word, row, col, direction, grid, placedCount) {
         if (row !== 0 && row + word.length !== CONTEXT.TILE_COUNT &&
             col !== 0 && col + word.length !== CONTEXT.TILE_COUNT)
             score -= 3 * Math.min(5, word.length);
-        
-        // add some randomness to the mix
-        score = 4 * CONTEXT.RANDOM() * score - 2;
-
-        return score;
-
     } else {
         // aim to connect words now
 
@@ -700,9 +721,12 @@ function getScore(word, row, col, direction, grid, placedCount) {
             }
             score += 10 * letterInc / word.length / (lenLetters-1);
         }
-
-        return score;
     }
+
+    // add some randomness to the mix
+    score = 4 * CONTEXT.RANDOM() * score - 2;
+
+    return score;
 }
 
 // puts a word into the grid at the current position (assumes overflow has been checked)
@@ -751,7 +775,7 @@ function placeWord(word, row, col, grid, direction) {
     let wordInfo = {"word": word.toUpperCase(), "clue": getClue(word)};
     CONTEXT[direction === HORIZONTAL ? "ACROSS" : "DOWN"][index] = wordInfo;
 
-    // add all extra words (I cannot believe this worked first try)
+    // add all extra words (I cannot believe this worked first try) (edit: almost)
     for (let extraWord of extraWords) {
         index = extraWord[2] + extraWord[1] * CONTEXT.TILE_COUNT;
         wordInfo = {"word": extraWord[0].toUpperCase(), "clue": getClue(extraWord[0])};

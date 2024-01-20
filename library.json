@@ -197,6 +197,7 @@
         { "word": "aut",            "clue": "Either, or." },
         { "word": "me",             "clue": "Accusative of \"ego.\"" },
         { "word": "undae",          "clue": "The majestic movements of the ocean." },
-        { "word": "est",            "clue": "It's not \"it's not?\"" }
+        { "word": "est",            "clue": "It's not \"it's not?\"" },
+        { "word": "dum",            "clue": "While." }
     ]
 }
