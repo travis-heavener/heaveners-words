@@ -194,6 +194,9 @@
         { "word": "opus",           "clue": "Work." },
         { "word": "pars",           "clue": "Section, part of a whole." },
         { "word": "vita",           "clue": "Life, career." },
-        { "word": "aut",            "clue": "Either, or." }
+        { "word": "aut",            "clue": "Either, or." },
+        { "word": "me",             "clue": "Accusative of \"ego.\"" },
+        { "word": "undae",          "clue": "The majestic movements of the ocean." },
+        { "word": "est",            "clue": "It's not \"it's not?\"" }
     ]
 }

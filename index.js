@@ -70,13 +70,12 @@ $(document).ready(async () => {
 
     // generate best grid of N
     const grids = [];
-    for (let i = 0; i < 1; i++) {
+    for (let i = 0; i < 1; i++)
         grids.push(generateGrid());
-        console.log(grids[grids.length-1][1]);
-    }
 
     // get best grid
     const grid = grids.sort((a,b) => b[0]-a[0])[0][0];
+    console.log("Grid tiles filled: " + grid[1]);
     CONTEXT.ACROSS = grids[0][2];
     CONTEXT.DOWN = grids[0][3];
     drawGrid(CONTEXT.GRID = grid);
@@ -419,106 +418,6 @@ function checkGrid(replaceIncorrect=false) {
 
 /****************** generation algorithm ******************/
 
-// generates word placement
-function generateGrid() {
-    // generate an empty grid
-    const grid = [];
-    for (let i = 0; i < CONTEXT.TILE_COUNT; i++) {
-        grid.push(
-            Array.apply(null, new Array(CONTEXT.TILE_COUNT)
-        ).map(() => null));
-    }
-
-    // randomize THEN sort words by length desc
-    let words = CONTEXT.WORDS.slice().sort(() => CONTEXT.RANDOM() - 0.5); // seeded, randomized sort
-    // words = words.sort((a,b) => b.word.length - a.word.length); // sort longest-first
-    // words = words.sort((a,b) => a.word.length - b.word.length); // sort shortest-first
-    
-    // place words in the grid
-    const maxWords = 110;
-    let placedCount = 0; // add 1 for every word on the board
-
-    // keep going until we're out of words or have reached the stage 1 cap
-    for (let i = 0; i < words.length && placedCount < CONTEXT.STAGE_1; i++) {
-        // check if the word fits
-        const word = words[i].word;
-        
-        // for each position on the board, check if we can place the word down or across away from top-left
-        let validPositions = [];
-        for (let r = 0; r < CONTEXT.TILE_COUNT; r++) {
-            for (let c = 0; c < CONTEXT.TILE_COUNT; c++) {
-                // speed optimization, if the word can't fit skip the rest of this row
-                if (word.length + c > CONTEXT.TILE_COUNT && word.length + r > CONTEXT.TILE_COUNT)
-                    break;
-
-                // check if the word can be placed
-                const placements = getWordPlacements(word, r, c, grid);
-                for (let p of placements) {
-                    const score = getScore(word, r, c, p, grid, true);
-                    validPositions.push([score, r, c, p]);
-                }
-            }
-        }
-
-        // find best possible position
-        if (validPositions.length) {
-            // sort highest score first
-            const sortedPositions = validPositions.sort((a,b) => b[0] - a[0]);
-            const pos = sortedPositions[0]; // [score, row, col, direction]
-
-            // if the score is greater than the accepted threshold, place the word
-            if (pos[0] > CONTEXT.MIN_SCORE) {
-                placeWord(word, pos[1], pos[2], grid, pos[3]);
-                placedCount++;
-                
-                // remove word from words
-                words.splice(i--, 1);
-            }
-        }
-    }
-
-    // place remaining words
-    while (words.length && placedCount < maxWords) {
-        // get the valid positions for each word
-        let validPositions = [], word;
-        for (let i = 0; i < words.length && (word = words[i].word); i++) {
-
-            // for each position on the board, check if we can place the word down or across away from top-left
-            for (let r = 0; r < CONTEXT.TILE_COUNT; r++) {
-                for (let c = 0; c < CONTEXT.TILE_COUNT; c++) {
-                    // speed optimization, if the word can't fit skip the rest of this row
-                    if (word.length + c > CONTEXT.TILE_COUNT && word.length + r > CONTEXT.TILE_COUNT)
-                        break;
-
-                    // check if the word can be placed
-                    const placements = getWordPlacements(word, r, c, grid);
-                    for (let p of placements)
-                        validPositions.push([getScore(word, r, c, p, grid), r, c, p, i]);
-                }
-            }
-        }
-
-        // find best possible position
-        if (validPositions.length) {
-            // sort highest score first
-            const sortedPositions = validPositions.sort((a,b) => b[0] - a[0]);
-            const pos = sortedPositions[0]; // [score, row, col, direction, word index]
-            const word = words[pos[4]];
-
-            // place the highest word
-            if (pos[0] === -Infinity) break;
-
-            placeWord(word.word, pos[1], pos[2], grid, pos[3]);
-            placedCount++;
-            words.splice(pos[4], 1); // remove the word
-            continue;
-        }
-
-        // base case
-        break;
-    }
-}
-
 function drawGrid(grid) {
     // place each letter onto the grid
     for (let r = 0; r < grid.length; r++) {
@@ -608,10 +507,8 @@ function generateGrid() {
     // place as many words as possible
     while (words.length && placedCount < maxWords) {
         // get the valid positions for each word
-        let validPositions = {};
-        for (let i = 0; i < words.length; i++) {
-            const word = words[i].word;
-
+        let validPositions = [], word;
+        for (let i = 0; i < words.length && (word = words[i].word); i++) {
             // for each position on the board, check if we can place the word down or across away from top-left
             for (let r = 0; r < CONTEXT.TILE_COUNT; r++) {
                 for (let c = 0; c < CONTEXT.TILE_COUNT; c++) {
@@ -620,23 +517,16 @@ function generateGrid() {
                         break;
 
                     // check if the word can be placed
-                    const placements = getWordPlacements(word, r, c, grid);
-                    for (let p of placements) {
-                        const score = getScore(word, r, c, p, grid, placedCount);
-
-                        // only store the best score
-                        if (!validPositions[i] || validPositions[i][0] < score)
-                            validPositions[i] = [score, r, c, p, i];
-                    }
+                    for (let p of getWordPlacements(word, r, c, grid))
+                        validPositions.push([getScore(word, r, c, p, grid), r, c, p, i]);
                 }
             }
         }
 
         // find best possible position
-        if (Object.keys(validPositions).length) {
+        if (validPositions.length) {
             // sort highest score first
-            let sortedPositions = Object.values(validPositions).sort((a,b) => b[0] - a[0]);
-
+            const sortedPositions = validPositions.sort((a,b) => b[0] - a[0]);
             const pos = sortedPositions[0]; // [score, row, col, direction, word index]
             const word = words[pos[4]];
 
@@ -645,9 +535,7 @@ function generateGrid() {
 
             placeWord(word.word, pos[1], pos[2], grid, pos[3]);
             placedCount++;
-
-            // remove the word
-            words.splice(pos[4], 1);
+            words.splice(pos[4], 1); // remove the word
             continue;
         }
 
