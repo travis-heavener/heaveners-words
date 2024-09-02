@@ -25,12 +25,9 @@ const CONTEXT = {
     },
     "isFocused": false,
     "gameClock": null,
-    "isCompleted": false
+    "isCompleted": false,
+    "letterFreqs": {} // generated on the library.json dataset
 };
-
-// most to least common letters used in Latin
-// source: https://www.sttmedia.com/characterfrequency-latin
-const RANKED_LETTERS = "IEAUTSRNOMCLPDBQGVFHXYZK";
 
 // global enum
 const HORIZONTAL = 1, VERTICAL = 2;
@@ -50,12 +47,15 @@ $(document).ready(async () => {
     CONTEXT.DIRECTION = HORIZONTAL;
 
     // load in words pool
-    CONTEXT.WORDS = (await $.ajax({
+    const res = await $.ajax({
         "url": "library.json",
         "method": "GET",
         "contentType": "application/json",
         "cache": false
-    })).words;
+    });
+
+    CONTEXT.WORDS = res.words;
+    CONTEXT.letterFreqs = res.letterFreqs;
 
     // generate a grid
     $("#content").css({
@@ -68,18 +68,12 @@ $(document).ready(async () => {
     for (let i = 0; i < CONTEXT.TILE_COUNT ** 2; i++)
         $("#content").append("<div class='tile'></div>");
 
-    // generate best grid of N
-    let grids = [];
-    for (let i = 0; i < 1; i++)
-        grids.push(generateGrid());
-
-    // get best grid
-    grids = grids.sort((a,b) => b[0]-a[0]);
-    const grid = grids[0][0];
-    console.log("Grid tiles filled: " + grids[0][1]);
-    CONTEXT.ACROSS = grids[0][2];
-    CONTEXT.DOWN = grids[0][3];
-    drawGrid(CONTEXT.GRID = grid);
+    // generate grid
+    const grid = generateGrid();
+    console.log("Grid score: " + ~~(grid[1] * 1e4)/1e2 + "%");
+    CONTEXT.ACROSS = grid[2];
+    CONTEXT.DOWN = grid[3];
+    drawGrid(CONTEXT.GRID = grid[0]);
 
     // bind resize event
     $(window).on("resize", (e) => {
@@ -417,6 +411,22 @@ function checkGrid(replaceIncorrect=false) {
     }
 }
 
+// reveals the whole grid
+function revealGrid() {
+    for (let num of Object.keys(CONTEXT.DOWN)) {
+        const word = CONTEXT.DOWN[num].word;
+        [...$("h1[data-down=" + num + "]")].forEach((elem, i) => elem.innerHTML = word[i]);
+    }
+
+    for (let num of Object.keys(CONTEXT.ACROSS)) {
+        const word = CONTEXT.ACROSS[num].word;
+        [...$("h1[data-across=" + num + "]")].forEach((elem, i) => elem.innerHTML = word[i]);
+    }
+
+    // verify everything is correct, also ends the game :)
+    checkGrid();
+}
+
 /****************** generation algorithm ******************/
 
 function drawGrid(grid) {
@@ -528,13 +538,17 @@ function generateGrid() {
     // words = words.sort((a,b) => a.word.length - b.word.length); // sort shortest-first
     
     // place words in the grid
-    const maxWords = 110;
+    const maxWords = 120;
     let placedCount = 0; // add 1 for every word on the board
+    let tilesFilled = 0;
     
     // place as many words as possible
     while (words.length && placedCount < maxWords) {
         // get the valid positions for each word
         let validPositions = [], word;
+        const filledPercent = tilesFilled/(CONTEXT.TILE_COUNT**2);
+        const availWords = words.map(w => w.word.toUpperCase());
+
         for (let i = 0; i < words.length && (word = words[i].word); i++) {
             // for each position on the board, check if we can place the word down or across away from top-left
             for (let r = 0; r < CONTEXT.TILE_COUNT; r++) {
@@ -544,8 +558,10 @@ function generateGrid() {
                         break;
 
                     // check if the word can be placed
-                    for (let p of getWordPlacements(word, r, c, grid))
-                        validPositions.push([getScore(word, r, c, p, grid), r, c, p, i]);
+                    for (let p of getWordPlacements(word, r, c, grid, availWords)) {
+                        // validPositions.push([getScore(word, r, c, p, grid, placedCount), r, c, p, i]);
+                        validPositions.push([getScore(word, r, c, p, grid, filledPercent), r, c, p, i]);
+                    }
                 }
             }
         }
@@ -560,9 +576,13 @@ function generateGrid() {
             // place the highest word
             if (pos[0] === -Infinity) break;
 
-            placeWord(word.word, pos[1], pos[2], grid, pos[3]);
+            let wordsUsed = placeWord(word.word, pos[1], pos[2], grid, pos[3]);
             placedCount++;
-            words.splice(pos[4], 1); // remove the word
+            tilesFilled += word.word.length; // update tilesFilled
+
+            for (let i = 0; i < words.length; i++)
+                if (wordsUsed.includes( words[i].word.toUpperCase() ))
+                    words.splice(i--, 1);// remove the word
             continue;
         }
 
@@ -583,7 +603,73 @@ function generateGrid() {
 }
 
 // determine a score for each position (ie. where are certain words more desirable)
-function getScore(word, row, col, direction, grid, placedCount) {
+function getScore(word, row, col, direction, grid, filledPercent) {
+    let score = 0;
+
+    // count each tile that is a part of the highlighted section
+    const middle = CONTEXT.TILE_COUNT/2;
+    const outerIntercept = CONTEXT.TILE_COUNT * (1 - 0.25*filledPercent*0);
+    const innerIntercept = CONTEXT.TILE_COUNT * 0.67 * (1-2*filledPercent*0);
+    
+    let containedTiles = 0;
+    
+    for (let i = 0; i < word.length; i++) {
+        // scale row and col into 1st quadrant
+        const y = Math.abs(row+(direction === VERTICAL)*i - middle);
+        const x = Math.abs(col+(direction !== VERTICAL)*i - middle);
+        let oInt = outerIntercept - y;
+        let iInt = innerIntercept - y;
+
+        if (x < oInt && x > iInt)
+            containedTiles++
+    }
+
+    // scale the number of contained tiles over the length of the word
+    score = containedTiles / word.length;
+
+    // factor in the frequency of common characters with the filledPercent (earlier we want common letters)
+    let letterScore = 0;
+
+    const lenLetters = Object.keys(CONTEXT.letterFreqs).length;
+    for (let char of word.toUpperCase()) {
+        if (char in CONTEXT.letterFreqs) {
+            letterScore += lenLetters - 1 - CONTEXT.letterFreqs[char];
+        } else {
+            letterScore = -Infinity;
+            console.warn("Invalid character \"" + char + "\" in word: \"" + word + "\".");
+        }
+    }
+
+    // 1 is most common, 0 is least common
+    letterScore /= word.length * (lenLetters-1) / 2;
+
+    score = filledPercent > 0.25 ? score : (score * letterScore);
+
+    // favor longer words
+    // score *= filledPercent > 0.25 ? word.length/CONTEXT.TILE_COUNT : (1-(word.length/CONTEXT.TILE_COUNT));
+    const thirdTileCount = (CONTEXT.TILE_COUNT/3);
+    score *= Math.max(0.2, (1 - Math.abs(thirdTileCount - word.length)/thirdTileCount)); // closer to half tile count, better
+
+    // add points to letters that "cross" other "words" (see what I did there)
+    let crossInc = 0;
+    for (let l = 0; l < word.length; l++) {
+        if (direction === HORIZONTAL) {
+            const rowPrev = row-1 >= 0 ? grid[row-1][col+l] : null;
+            const rowNext = row+1 < CONTEXT.TILE_COUNT ? grid[row+1][col+l] : null;
+            crossInc += (rowPrev !== null) + (rowNext !== null);
+        } else {
+            const colPrev = col-1 >= 0 ? grid[row+l][col-1] : null;
+            const colNext = col+1 < CONTEXT.TILE_COUNT ? grid[row+l][col+1] : null;
+            crossInc += (colPrev !== null) + (colNext !== null);
+        }
+    }
+    
+    score *= crossInc / word.length; // at most 2 intersections per tile, so this clamps 0-2
+    if (score) console.log(word, score);
+    return score;
+}
+
+function old_getScore(word, row, col, direction, grid, placedCount) {
     const middle = CONTEXT.TILE_COUNT / 2;
 
     // axis-centered row/col
@@ -607,10 +693,10 @@ function getScore(word, row, col, direction, grid, placedCount) {
         // add points to words whose average letter frequency is highest
         {
             let letterInc = 0;
-            const lenLetters = RANKED_LETTERS.length;
+            const lenLetters = CONTEXT.letterFreqs.length;
             for (let char of word.toUpperCase()) {
-                if (RANKED_LETTERS.includes(char)) {
-                    letterInc += lenLetters - 1 - RANKED_LETTERS.indexOf(char);
+                if (CONTEXT.letterFreqs.includes(char)) {
+                    letterInc += lenLetters - 1 - CONTEXT.letterFreqs.indexOf(char);
                 } else {
                     letterInc = -Infinity;
                     console.warn("Invalid character \"" + char + "\" in word: \"" + word + "\".");
@@ -710,10 +796,10 @@ function getScore(word, row, col, direction, grid, placedCount) {
         // add points to words which consist of more common letters
         {
             let letterInc = 0;
-            const lenLetters = RANKED_LETTERS.length;
+            const lenLetters = CONTEXT.letterFreqs.length;
             for (let char of word.toUpperCase()) {
-                if (RANKED_LETTERS.includes(char)) {
-                    letterInc += lenLetters - 1 - RANKED_LETTERS.indexOf(char);
+                if (CONTEXT.letterFreqs.includes(char)) {
+                    letterInc += lenLetters - 1 - CONTEXT.letterFreqs.indexOf(char);
                 } else {
                     letterInc = -Infinity;
                     console.warn("Invalid character \"" + char + "\" in word: \"" + word + "\".");
@@ -750,8 +836,8 @@ function placeWord(word, row, col, grid, direction) {
                 for (r = row+1; (p = getPos(r, col+l)) !== null; r++) hitWord += p;
 
                 // append perpendicular to extraWords
-                if (!extraWords.map(w => w[0]).includes(hitWord.toLowerCase()))
-                    extraWords.push([hitWord.toLowerCase(), minRow, col+l, VERTICAL]);
+                if (!extraWords.map(w => w[0]).includes(hitWord.toUpperCase()))
+                    extraWords.push([hitWord.toUpperCase(), minRow, col+l, VERTICAL]);
             }
         } else {
             if (getPos(row+l, col-1) !== null || getPos(row+l, col+1) !== null) {
@@ -762,8 +848,8 @@ function placeWord(word, row, col, grid, direction) {
                 for (c = col+1; (p = getPos(row+l, c)) !== null; c++) hitWord += p;
 
                 // append perpendicular to extraWords
-                if (!extraWords.map(w => w[0]).includes(hitWord.toLowerCase()))
-                    extraWords.push([hitWord.toLowerCase(), row+l, minCol, HORIZONTAL]);
+                if (!extraWords.map(w => w[0]).includes(hitWord.toUpperCase()))
+                    extraWords.push([hitWord.toUpperCase(), row+l, minCol, HORIZONTAL]);
             }
         }
     }
@@ -778,13 +864,15 @@ function placeWord(word, row, col, grid, direction) {
     // add all extra words (I cannot believe this worked first try) (edit: almost)
     for (let extraWord of extraWords) {
         index = extraWord[2] + extraWord[1] * CONTEXT.TILE_COUNT;
-        wordInfo = {"word": extraWord[0].toUpperCase(), "clue": getClue(extraWord[0])};
+        wordInfo = {"word": extraWord[0], "clue": getClue(extraWord[0])};
         CONTEXT[extraWord[3] === HORIZONTAL ? "ACROSS" : "DOWN"][index] = wordInfo;
     }
+
+    return [word.toUpperCase(), ...extraWords.map(w => w[0])];
 }
 
 // gets the direction of all possible word placements at this position
-function getWordPlacements(word, row, col, grid) {
+function getWordPlacements(word, row, col, grid, availWords) {
     // immediately return if the tile is taken by another letter already
     if (word[0] !== grid[row][col] && grid[row][col] !== null)
         return [];
@@ -793,7 +881,6 @@ function getWordPlacements(word, row, col, grid) {
     const getPos = (r, c) => (r >= 0 && r < CONTEXT.TILE_COUNT && c >= 0 && c < CONTEXT.TILE_COUNT) ? grid[r][c] : null;
 
     // check horizontal
-    const upperWords = CONTEXT.WORDS.map(w => w.word.toUpperCase());
     let isHorizontal = false;
     if (col + word.length <= CONTEXT.TILE_COUNT && getPos(row, col) === null && getPos(row, col-1) === null) {
         for (let l = 0; l < word.length; l++) {
@@ -808,7 +895,7 @@ function getWordPlacements(word, row, col, grid) {
                 for (let r = row+1; (p = getPos(r, col+l)) !== null; r++) hitWord += p;
 
                 // if this connecting word isn't valid, break
-                if (!upperWords.includes(hitWord.toUpperCase())) break;
+                if (!availWords.includes(hitWord.toUpperCase())) break;
             }
 
             // if we're still in the loop and this is the last index, then the word fits
@@ -831,7 +918,7 @@ function getWordPlacements(word, row, col, grid) {
                 for (let c = col+1; (p = getPos(row+l, c)) !== null; c++) hitWord += p;
 
                 // if this connecting word isn't valid, break
-                if (!upperWords.includes(hitWord.toUpperCase())) break;
+                if (!availWords.includes(hitWord.toUpperCase())) break;
             }
 
             // if we're still in the loop and this is the last index, then the word fits
@@ -860,4 +947,37 @@ function mulberry32(a) {
         t ^= t + Math.imul(t ^ t >>> 7, t | 61);
         return ((t ^ t >>> 14) >>> 0) / 4294967296;
     }
+}
+
+// generate a numeric ranking of each letter in the dataset
+// for debug purposes
+function genDatasetLetterFreqs() {
+    const words = CONTEXT.WORDS.map(w => w.word.toUpperCase());
+    
+    // determine frequencies of each letter
+    let datasetSize = 0;
+    const freqs = {};
+    for (let word of words) {
+        for (let letter of word) {
+            freqs[letter] = freqs[letter] ? freqs[letter]+1 : 1;
+            datasetSize++;
+        }
+    }
+
+    // format
+    for (let letter in freqs) {
+        if (!freqs.hasOwnProperty(letter)) continue;
+        freqs[letter] /= datasetSize;
+    }
+
+    let str = JSON.stringify(freqs);
+    str = str.substring(1, str.length-1); // remove curly braces
+
+    let parts = str.split(",");
+    str = "";
+    for (let part of parts)
+        str += part.split(":")[0] + ": " + part.split(":")[1] + ",\n";
+
+    str = str.substring(0, str.length-2); // remove extra newline and comma
+    console.log(str);
 }
